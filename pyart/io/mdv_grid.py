@@ -234,7 +234,9 @@ def write_grid_mdv(filename, grid, mdv_field_names=None,
 
 def read_grid_mdv(filename, field_names=None, additional_metadata=None,
                   file_field_names=False, exclude_fields=None,
-                  delay_field_loading=False, **kwargs):
+                  delay_field_loading=False,
+                  use_field_origin=False,
+                  **kwargs):
     """
     Read a MDV file to a Grid Object.
 
@@ -332,6 +334,9 @@ def read_grid_mdv(filename, field_names=None, additional_metadata=None,
     y_step = mdv.field_headers[0]["grid_dy"] * 1000.
     x_step = mdv.field_headers[0]["grid_dx"] * 1000.
 
+    # don't pass projection information unless using projection that needs more information
+    proj_info = None
+
     if mdv.field_headers[0]["proj_type"] == mdv_common.PROJ_LATLON:
         # x and y dimensions have units of degrees
         xunits = 'degree_E'
@@ -340,10 +345,27 @@ def read_grid_mdv(filename, field_names=None, additional_metadata=None,
         x_start = mdv.field_headers[0]["grid_minx"]
         y_step = mdv.field_headers[0]["grid_dy"]
         x_step = mdv.field_headers[0]["grid_dx"]
+    elif mdv.field_headers[0]["proj_type"] == mdv_common.PROJ_LAMBERT_CONF:
+        xunits = 'km'
+        yunits = 'km'
+        proj_info = {'proj': 'lcc',
+                     'lat_0': mdv.field_headers[0]["proj_origin_lat"],
+                     'lon_0': mdv.field_headers[0]["proj_origin_lon"],
+                     'lat_1': mdv.field_headers[0]["proj_param"][0],
+                     'lat_2': mdv.field_headers[0]["proj_param"][1],
+        }
+
     elif (mdv.field_headers[0]["proj_type"] != mdv_common.PROJ_POLAR_RADAR and
           mdv.field_headers[0]["proj_type"] != mdv_common.PROJ_RHI_RADAR):
         xunits = 'm'
         yunits = 'm'
+
+    # if use field origin option is set, get origin lat/lon from projection info in field header
+    if use_field_origin:
+        origin_latitude['data'] = np.array(
+            [mdv.field_headers[0]["proj_origin_lat"]], dtype='float64')
+        origin_longitude['data'] = np.array(
+            [mdv.field_headers[0]["proj_origin_lon"]], dtype='float64')
 
     if mdv.field_headers[0]["vlevel_type"] == 4:  # VERT_TYPE_Z
         zunits = 'm'
@@ -356,6 +378,8 @@ def read_grid_mdv(filename, field_names=None, additional_metadata=None,
         zunits = 'mb'
     elif mdv.field_headers[0]["vlevel_type"] == 7:  # VERT_TYPE_THETA
         zunits = 'kelvin'
+    elif mdv.field_headers[0]["vlevel_type"] == 15:  # VERT_TYPE_FLIGHT
+        zunits = 'kft'
     else:
         warnings.warn(("While reading MDV found unexpected 'vlevel_type'" +
                        " (%i), units in the z axis set to 'unknown'") %
@@ -401,7 +425,7 @@ def read_grid_mdv(filename, field_names=None, additional_metadata=None,
     if not delay_field_loading:
         mdv.close()
     return Grid(time, fields, metadata,
-                origin_latitude, origin_longitude, origin_altitude, x, y, z)
+                origin_latitude, origin_longitude, origin_altitude, x, y, z, projection=proj_info)
 
 
 # This function may be helpful in other cases and could be moved in common
